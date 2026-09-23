@@ -1,8 +1,10 @@
 from copy import deepcopy
+import hashlib
 import unittest
 
 from explanations import build_cards
 from ranking import rank_candidates
+from semantic import SemanticCache, prepare_semantic_cache
 
 
 QUERY = {"city": "Алматы", "date": "2026-11-14", "category": "Ведущий",
@@ -90,6 +92,41 @@ class ExplanationTests(unittest.TestCase):
         card = build_cards([profile(description="Ведущий " + "музыка " * 70)], QUERY)[0]
         self.assertIn("Краткая цитата из описания не приведена", card["explanation"])
         self.assertFalse(any(e["field"] == "description" for e in card["evidence"]))
+
+    def semantic_row(self):
+        row = profile()
+        content = prepare_semantic_cache([row], [QUERY], lambda texts: [[1, 0] for t in texts],
+                                         model="explicit-test-fake", revision="a" * 40, encoder="fake-v1")
+        cache = SemanticCache.from_bytes(content, hashlib.sha256(content).hexdigest())
+        row["score"] = 1.0
+        row["score_breakdown"] = {"semantic_similarity": 1.0}
+        row["evidence"] = [cache.evidence(row["description"], QUERY, 1.0)]
+        row["evidence"].append(cache.excerpt(row["description"], QUERY))
+        return row
+
+    def test_semantic_evidence_is_preserved_without_aliasing(self):
+        row = self.semantic_row()
+        before = deepcopy(row)
+        card = build_cards([row], QUERY)[0]
+        fact = next(e for e in card["evidence"] if e.get("role") == "semantic_scoring")
+        self.assertEqual(fact, row["evidence"][0])
+        fact["value"] = "changed"
+        self.assertEqual(row, before)
+
+    def test_changed_semantic_query_profile_and_score_raise(self):
+        for key, value in (("description", "Changed"), ("score", 0.5), ("evidence", [])):
+            row = self.semantic_row()
+            row[key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                build_cards([row], QUERY)
+        with self.assertRaises(ValueError):
+            build_cards([self.semantic_row()], {**QUERY, "event_type": "той"})
+
+    def test_semantic_excerpt_must_be_literal(self):
+        row = self.semantic_row()
+        row["evidence"][1]["value"] = "Выдуманное преимущество"
+        with self.assertRaises(ValueError):
+            build_cards([row], QUERY)
 
 
 if __name__ == "__main__":

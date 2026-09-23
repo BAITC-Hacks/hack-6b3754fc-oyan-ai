@@ -2,15 +2,18 @@
 
 from copy import deepcopy
 import itertools
+import hashlib
 import json
 import math
 import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 
 from ranking import rank_candidates
+from semantic import prepare_semantic_cache, query_text
 
 
 def profile(identifier, price=200000, **changes):
@@ -93,9 +96,92 @@ class RankingTests(unittest.TestCase):
             proc = subprocess.run([sys.executable, "-B", "-c", script], input=json.dumps(payload),
                                   text=True, capture_output=True, check=True,
                                   cwd=Path(__file__).resolve().parents[1],
-                                  env={**os.environ, "PYTHONHASHSEED": seed})
+                                  env={**os.environ, "PYTHONHASHSEED": seed, "RANKING_MODE": "baseline"})
             results.append(proc.stdout)
         self.assertEqual(len(set(results)), 1)
+
+
+class SemanticRankingTests(unittest.TestCase):
+    """Isolated startup tests with labelled fake embeddings, no model download."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.path = Path(self.directory.name) / "cache.json"
+        self.rows = [profile("A", 100000, description="A"), profile("B", 200000, description="B"),
+                     profile("C", 200000, description="C"), profile("D", 300000, description="D")]
+        table = {"A": [0, 1], "B": [1, 0], "C": [1, 0], "D": [1, 0], query_text(QUERY): [1, 0]}
+        content = prepare_semantic_cache(self.rows, [QUERY], lambda texts: [table[t] for t in texts],
+                                         model="explicit-test-fake", revision="b" * 40, encoder="fake-v1")
+        self.path.write_bytes(content)
+        self.env = {**os.environ, "RANKING_MODE": "semantic", "RANKING_SEMANTIC_CACHE": str(self.path),
+                    "RANKING_SEMANTIC_SHA256": hashlib.sha256(content).hexdigest()}
+
+    def run_process(self, rows=None, script=None, env=None):
+        script = script or ("import json,sys; from ranking import rank_candidates,RANKING_METHOD,SCORING_VERSION; "
+                            "from explanations import build_cards; d=json.load(sys.stdin); "
+                            "r=rank_candidates(d['rows'],d['query']); "
+                            "assert rank_candidates(r,d['query'])==r; "
+                            "print(json.dumps({'ranked':r,'cards':build_cards(r[:3],d['query']),"
+                            "'method':RANKING_METHOD,'version':SCORING_VERSION},sort_keys=True,ensure_ascii=False))")
+        return subprocess.run([sys.executable, "-B", "-c", script],
+                              input=json.dumps({"rows": self.rows if rows is None else rows, "query": QUERY}),
+                              text=True, capture_output=True, cwd=Path(__file__).resolve().parents[1],
+                              env=self.env if env is None else env)
+
+    def test_semantic_score_before_price_and_id(self):
+        proc = self.run_process()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        data = json.loads(proc.stdout)
+        self.assertEqual([r["id"] for r in data["ranked"]], ["B", "C", "D", "A"])
+        self.assertEqual([r["id"] for r in data["cards"]], ["B", "C", "D"])
+        self.assertEqual(data["method"], "cached_sentence_embeddings_cosine")
+        self.assertIn(self.env["RANKING_SEMANTIC_SHA256"], data["version"])
+        card = data["cards"][0]
+        self.assertEqual(card["score_breakdown"], {"semantic_similarity": 1.0})
+        fact = next(e for e in card["evidence"] if e.get("role") == "semantic_scoring")
+        self.assertEqual(fact["value"], card["description"])
+        self.assertEqual(fact["revision"], "b" * 40)
+        self.assertIn("смысловой близости", card["explanation"])
+
+    def test_permutations_and_restarts_in_semantic_mode(self):
+        outputs = set()
+        for seed, rows in enumerate(itertools.permutations(self.rows)):
+            proc = self.run_process(list(rows), env={**self.env, "PYTHONHASHSEED": str(seed)})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            outputs.add(proc.stdout)
+        self.assertEqual(len(outputs), 1)
+
+    def test_no_silent_fallback_for_corrupt_or_missing_cache(self):
+        for content in (b"invalid", None):
+            if content is None:
+                self.path.unlink()
+            else:
+                self.path.write_bytes(content)
+            proc = self.run_process()
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("SemanticCacheError", proc.stderr)
+            self.assertEqual(proc.stdout, "")
+
+    def test_new_description_requires_explicit_rebuild(self):
+        proc = self.run_process([profile("X", description="not in cache")])
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("missing from pinned cache", proc.stderr)
+
+    def test_running_process_does_not_switch_mode(self):
+        script = ("import os,json,sys; from ranking import rank_candidates; d=json.load(sys.stdin); "
+                  "before=rank_candidates(d['rows'],d['query']); os.environ['RANKING_MODE']='baseline'; "
+                  "assert rank_candidates(d['rows'],d['query'])==before; print('unchanged')")
+        proc = self.run_process(script=script)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "unchanged")
+
+    def test_invalid_mode_errors_and_explicit_baseline_still_works(self):
+        invalid = self.run_process(env={**self.env, "RANKING_MODE": "typo"})
+        self.assertNotEqual(invalid.returncode, 0)
+        baseline = self.run_process(env={**self.env, "RANKING_MODE": "baseline", "RANKING_SEMANTIC_CACHE": "/missing"})
+        self.assertEqual(baseline.returncode, 0, baseline.stderr)
+        self.assertEqual(json.loads(baseline.stdout)["ranked"][0]["id"], "A")
 
 
 if __name__ == "__main__":
