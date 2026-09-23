@@ -6,7 +6,7 @@
     "ranking": "9a554ce90740e69fef812596c56b0f6b38766b41",
     "ui": "7309b63aca8164e9afbd136913e6919d01b092f2",
     "integrator_release": "0b10f4eb9802db619d170b5c8b38344099d932e4",
-    "ui_docs": "3dc7988e082bd33f3d9057641427f03b53d3dbf3"
+    "ui_docs": "1efa469c8944848fc61d5e00a7f63d5634aad2df"
   },
   "integration": "Participant histories merged; one implementation in repository root; integrator compatibility entry points retained in ready_project."
 }

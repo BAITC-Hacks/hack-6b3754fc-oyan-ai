@@ -30,7 +30,6 @@ $fileMap = [ordered]@{
     'docs\TECH_RADAR.md' = 'docs\TECH_RADAR.md'
     'docs\TEAM_PLAYBOOK.md' = 'docs\TEAM_PLAYBOOK.md'
     'docs\PROGRESS_LOG.md' = 'docs\PROGRESS_LOG.md'
-    'templates\README.template.md' = 'templates\README.template.md'
     'scripts\preflight.ps1' = 'scripts\preflight.ps1'
 }
 

@@ -78,3 +78,8 @@ Baseline не вызывает нейросеть: сортировка по н�
 Общие прямые версии закреплены в [requirements.txt](../requirements.txt). [requirements.lock](../requirements.lock) — первоначально полученный снимок Windows/Python 3.12. Этот же lock успешно установлен в новом окружении macOS/Python 3.12.13. Проверка не доказывает совместимость с любыми ОС или версиями Python.
 
 Ранее проведён source gate: Streamlit 1.58.0 — Apache-2.0 ([PyPI](https://pypi.org/project/streamlit/1.58.0/), [репозиторий](https://github.com/streamlit/streamlit)); pytest 9.1.1 — MIT ([PyPI](https://pypi.org/project/pytest/9.1.1/), [репозиторий](https://github.com/pytest-dev/pytest)); Pydantic 2.13.5 — MIT ([PyPI](https://pypi.org/project/pydantic/2.13.5/), [репозиторий](https://github.com/pydantic/pydantic)). Решения по ядру — в [CHALLENGE_BRIEF.md](CHALLENGE_BRIEF.md), по модели и подготовке — в [ranking_notes.md](ranking_notes.md). Новые зависимости этой правкой документации не добавляются.
+
+После проверки включён документационный коммит P3 `1efa469`: удалены
+дублирующий README и неиспользуемый шаблон; единственная инструкция для жюри
+остаётся в корне. Исполняемые модули и тесты не изменились относительно `431c163`;
+в demo-артефактах обновлён только SHA источника документации.
