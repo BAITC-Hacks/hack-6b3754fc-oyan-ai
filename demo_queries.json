@@ -1,0 +1,27 @@
+{
+  "verification_status": "blocked_pending_core_and_jsonl",
+  "note": "Реальный recommend и согласованный JSONL пока отсутствуют. Подтверждённых demo-запросов нет; ответы UI-тестов не являются демо.",
+  "reference_csv": {
+    "path": "docs/hackathon dataset anonymized .csv",
+    "sha256": "6a724b6b7dfb5973343e68ba18dadb60fc807d87e3d78f03ee86fb26cb089f7d",
+    "profile_count": 66
+  },
+  "verified_cases": [],
+  "required_scenarios": [
+    "dense_autumn_more_than_three_eligible",
+    "rare_one_or_two_eligible",
+    "no_matching_candidates",
+    "category_not_found",
+    "same_query_two_dates_with_busy_evidence",
+    "repeat_and_process_restart_same_order"
+  ],
+  "required_case_fields": [
+    "name", "query", "status", "ordered_ids", "eligible_count",
+    "returned_count", "message", "dataset_hash", "scoring_version",
+    "ranking_method", "elapsed_seconds", "demonstrates"
+  ],
+  "date_pair_evidence_required": [
+    "first_case", "second_case", "disappeared_id", "busy_date",
+    "second_response_rejection"
+  ]
+}
