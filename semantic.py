@@ -70,7 +70,7 @@ def _description_excerpts(description, query, max_chars=320):
     return excerpts
 
 
-TEXT_VERSION = "event-category-ru-excerpts320-v1"
+TEXT_VERSION = "event-category-casefold-ru-excerpts320-v2"
 
 
 class SemanticCacheError(ValueError):
@@ -78,11 +78,18 @@ class SemanticCacheError(ValueError):
 
 
 def query_text(query):
-    """Only requested event/category affect meaning; eligibility is external."""
+    """Match the core's strip/casefold equivalence without mutating the query.
+
+    Only requested event/category affect meaning; eligibility is external.
+    Source descriptions remain verbatim. Changing this preparation requires
+    explicitly rebuilding embeddings under the new TEXT_VERSION.
+    """
     for key in ("event_type", "category"):
         if not isinstance(query.get(key), str) or not query[key].strip():
             raise SemanticCacheError(f"{key} must be a nonempty string")
-    return f"Тип мероприятия: {query['event_type']}. Категория подрядчика: {query['category']}."
+    event = query['event_type'].strip().casefold()
+    category = query['category'].strip().casefold()
+    return f"Тип мероприятия: {event}. Категория подрядчика: {category}."
 
 
 def _digest(text):

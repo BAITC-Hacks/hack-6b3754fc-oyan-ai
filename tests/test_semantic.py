@@ -102,6 +102,29 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(query_text(changed), query_text(self.query))
         self.assertEqual(self.load().similarity("A", changed), 1)
 
+    def test_query_case_and_edge_spaces_share_preparation_and_vectors(self):
+        variant = {"event_type": "  СВАДЬБА\t", "category": " ведущий "}
+        before = dict(variant)
+        self.assertEqual(query_text(variant), query_text(self.query))
+        self.assertEqual(self.prepare(queries=[self.query, variant]), self.content)
+        cache = self.load()
+        self.assertEqual(cache.similarity("A", variant), cache.similarity("A", self.query))
+        self.assertEqual(cache.evidence("A", variant, 1), cache.evidence("A", self.query, 1))
+        self.assertEqual(variant, before)
+
+    def test_query_normalization_does_not_change_internal_spaces_or_description(self):
+        cache = self.load()
+        for description, query in (("a", self.query), (" A ", self.query),
+                                   ("A", {**self.query, "category": "Ве дущий"})):
+            with self.subTest(description=description, query=query), self.assertRaises(SemanticCacheError):
+                cache.similarity(description, query)
+
+    def test_old_text_preparation_requires_explicit_rebuild(self):
+        data = json.loads(self.content)
+        data["text_version"] = "event-category-ru-excerpts320-v1"
+        with self.assertRaisesRegex(SemanticCacheError, "text preparation"):
+            self.load(json.dumps(data).encode())
+
     def test_snapshot_is_immutable_even_if_file_changes(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "cache.json"
