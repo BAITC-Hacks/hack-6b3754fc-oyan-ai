@@ -75,3 +75,26 @@ curl --fail --silent http://127.0.0.1:8501/_stcore/health
 Пока ядра нет: прочитать раздел «Состояние этой версии» и «Быстрый запуск» README как новый член жюри. Должно быть понятно, какой экран можно запустить сейчас и почему пока нет реальных рекомендаций. Записать одну фразу, которая непонятна или обещает лишнее.
 
 После интеграции: один реальный запрос с тремя карточками, без имён объяснить различия. Замечание оформляется по шаблону из `docs/demo.md`.
+
+## Сверка README по CODEX_README_TASK, 23.09.2026
+
+Прочитаны внешние `Documents/readme_for_codex/CODEX_README_TASK.md` и `README_CANDIDATE.md`; шаблон переработан по фактическому состоянию, без переноса неподтверждённых обещаний.
+
+Снимки: UI-код `5f85877`; `origin/main=82a8225`; новая ветка ранжирования `origin/feature/ranking=2cf4aeb`. Fetch выполнен успешно. В опубликованных просмотренных ветках загрузчик/recommend и JSONL не найдены, в нашей ветке нет requirements.txt. `codex_project_context/START_HERE.md` прочитан из origin/main. Модули ranking/scoring/semantic/explanations и тесты изучены из новой ветки коллеги, не объединены с нашим кодом.
+
+Повторные проверки:
+
+- `/private/tmp/participant3-ui-venv/bin/python -m pytest -q` в рабочей ветке: **27 passed in 7.72s**.
+- `python -m pip check` в том же окружении: **No broken requirements found**.
+- Изолированная копия `feature/ranking@2cf4aeb`: `RANKING_MODE=baseline python -m pytest -q` — **62 passed, 1 skipped, 35 subtests passed in 7.20s**. Пропущен optional local model smoke без SEMANTIC_TEST_MODEL_DIR. Реальная модель не запускалась; результаты тестов разных веток не представлены как общий suite.
+- `python -m streamlit run app.py --server.address 127.0.0.1 --server.headless true --browser.gatherUsageStats false --server.port 8503`: сервер запущен; `curl --fail --silent http://127.0.0.1:8503/_stcore/health` → **ok**.
+- `git clone --branch feature/ui-readme https://github.com/BAITC-Hacks/hack-6b3754fc-oyan-ai.git` в новую временную папку: **ошибка авторизации**, терминал не может запросить Username. Публичный доступ без учётных данных не подтверждён.
+- `git clone --branch feature/ui-readme git@github.com:BAITC-Hacks/hack-6b3754fc-oyan-ai.git` в новую временную папку: **успех** с имеющимся SSH-доступом. README теперь указывает это условие; доступ жюри или передача архива — необходимая часть воспроизводимости.
+- Повторно пересчитан CSV: **66 / synthetic 13 / city_imputed 8 / price_imputed 18**.
+- Проверены относительные ссылки, отсутствие TODO/CODEX VERIFY/угловых плейсхолдеров и whitespace-ошибок в новом README. Секреты из окружения не читались и не включались.
+
+Раздел «Проверить проект за 2 минуты» больше не содержит контрольных расчётов CSV под видом результатов приложения. `prepared_cases` остаётся подготовительным материалом; `verified_cases` пуст. Ни один demo-сценарий полного сервиса не объявлен проверенным.
+
+Уточнён AI: в отдельной ветке реализовано использование кэшированных sentence embeddings и указанная коллегой модель paraphrase-multilingual-MiniLM-L12-v2 с фиксированной ревизией. В нашей сборке эти модули/веса/кэш не подключены, поэтому активная AI-функция не заявлена. Убраны неподтверждённые примеры карточек, обещание чистого запуска полного проекта, скорость и впечатление завершённого Definition of Done.
+
+В новой SSH-копии ветки повторена команда `python -m pytest -q`: **27 passed in 3.43s**. Использовано ранее установленное изолированное окружение; повторная установка пакетов не выполнялась.
