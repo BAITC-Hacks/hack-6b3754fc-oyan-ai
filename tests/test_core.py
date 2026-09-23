@@ -190,7 +190,12 @@ def test_one_or_two_results_have_honest_message() -> None:
     assert "всего 2" in response["message"]
 
 
-def test_success_requires_participant_two_module() -> None:
+def test_missing_participant_two_module_is_an_integration_error(monkeypatch) -> None:
+    def missing_ranking(name: str):
+        assert name == "ranking"
+        raise ModuleNotFoundError("Simulated missing ranking module", name="ranking")
+
+    monkeypatch.setattr("recommender.importlib.import_module", missing_ranking)
     with pytest.raises(IntegrationNotReadyError, match="Participant 2"):
         recommend(query(), [profile("A")])
 
@@ -227,3 +232,61 @@ def test_inputs_are_not_mutated() -> None:
 def test_invalid_or_out_of_window_date_is_input_error(invalid_date: str) -> None:
     with pytest.raises(QueryValidationError, match="date"):
         recommend(query(date=invalid_date), [])
+
+
+@pytest.mark.parametrize("duration", [float("inf"), float("-inf"), float("nan"), 0, -1, True])
+def test_invalid_duration_is_input_error(duration: object) -> None:
+    with pytest.raises(QueryValidationError, match="duration"):
+        recommend(query(duration=duration), [profile("A")])
+
+
+@pytest.mark.parametrize("duration", [None, 0.5, 6, 6.0])
+def test_finite_and_optional_duration_remain_supported(duration: object) -> None:
+    assert run(query(duration=duration), [profile("A")])["status"] == "success"
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [("price_from_kzt", 999_999), ("busy_dates", ["2026-10-10"]),
+     ("languages", ["английский"]), ("description", "Changed description")],
+)
+@pytest.mark.parametrize("stage", ["ranking", "cards"])
+def test_integrations_cannot_change_source_fields(field, replacement, stage) -> None:
+    def changing_ranker(candidates, request):
+        ranked = ranker(candidates, request)
+        ranked[0][field] = replacement
+        return ranked
+
+    def changing_builder(candidates, request):
+        candidates[0][field] = replacement
+        return card_builder(candidates, request)
+
+    with pytest.raises(IntegrationContractError, match="changed source field"):
+        recommend(
+            query(), [profile("A")],
+            ranker=changing_ranker if stage == "ranking" else ranker,
+            card_builder=changing_builder if stage == "cards" else card_builder,
+        )
+
+
+@pytest.mark.parametrize("mutation", ["clear", "pop", "reverse"])
+def test_builder_cannot_change_finalist_count_or_order_in_place(mutation) -> None:
+    def changing_builder(candidates, request):
+        getattr(candidates, mutation)()
+        return card_builder(candidates, request)
+
+    with pytest.raises(IntegrationContractError, match="finalist"):
+        recommend(
+            query(), [profile("A"), profile("B")],
+            ranker=ranker, card_builder=changing_builder,
+        )
+
+
+def test_ranker_malformed_id_is_an_integration_error() -> None:
+    def broken_ranker(candidates, request):
+        ranked = ranker(candidates, request)
+        ranked[0]["id"] = ["A"]
+        return ranked
+
+    with pytest.raises(IntegrationContractError, match="string ids"):
+        recommend(query(), [profile("A")], ranker=broken_ranker, card_builder=card_builder)

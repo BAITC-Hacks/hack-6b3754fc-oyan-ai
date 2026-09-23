@@ -1,44 +1,17 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
+
+import pytest
+from streamlit.testing.v1 import AppTest
 
 from data_loader import load_contractors
 from recommender import recommend
 
 
-DATASET = Path("docs/hackathon dataset anonymized .csv")
-
-
-def deterministic_test_ranker(candidates: list[dict], _query: dict) -> list[dict]:
-    """Test-only adapter; production success still requires Participant 2."""
-
-    return [
-        {
-            **candidate,
-            "score": 0.0,
-            "score_breakdown": {},
-            "evidence": [{"field": "id", "value": candidate["id"]}],
-        }
-        for candidate in sorted(candidates, key=lambda item: item["id"])
-    ]
-
-
-deterministic_test_ranker.ranking_method = "test-only canonical id order"
-deterministic_test_ranker.scoring_version = "test-v1"
-
-
-def build_test_cards(candidates: list[dict], query: dict) -> list[dict]:
-    return [
-        {
-            **candidate,
-            "category": query["category"],
-            "explanation": (
-                f"Начальная цена от {candidate['price_from_kzt']} ₸ не выше бюджета. "
-                f"По календарю нет отметки о занятости на {query['date']}."
-            ),
-        }
-        for candidate in candidates
-    ]
+ROOT = Path(__file__).resolve().parents[1]
+DATASET = ROOT / "docs" / "hackathon dataset anonymized .csv"
 
 
 def real_query(*, budget: int, event_type: str) -> dict:
@@ -59,8 +32,6 @@ def test_real_csv_positive_pipeline_and_top_three_boundary() -> None:
     response = recommend(
         real_query(budget=2_000_000, event_type="корпоратив"),
         contractors,
-        ranker=deterministic_test_ranker,
-        card_builder=build_test_cards,
     )
 
     assert response["status"] == "success"
@@ -89,3 +60,101 @@ def test_real_csv_empty_pipeline_explains_primary_reasons() -> None:
         "too_short": 0,
     }
     assert "ни один не прошёл" in response["message"]
+
+
+SCENARIOS = [
+    ("dense", {}, "success", 6, ["HK-88430", "HK-44923", "HK-29829"]),
+    ("date_b", {"date": "2026-10-08"}, "success", 3,
+     ["HK-29829", "HK-27222", "HK-44733"]),
+    ("rare", {"date": "2026-10-09", "category": "Флорист", "event_type": "свадьба",
+              "budget": 300_000}, "success", 2, ["HK-39372", "HK-90001"]),
+    ("no_match", {"date": "2026-10-09", "budget": 100_000},
+     "no_matching_candidates", 0, []),
+    ("missing_category", {"date": "2026-10-09", "city": "Астана",
+                          "category": "Инструменталист"}, "category_not_found", 0, []),
+]
+
+
+def scenario_query(overrides: dict) -> dict:
+    return {
+        **real_query(budget=1_000_000, event_type="корпоратив"),
+        "date": "2026-10-06", **overrides,
+    }
+
+
+def assert_scenario(response, status, eligible, ordered_ids):
+    assert response["status"] == status
+    assert response["stats"]["eligible_count"] == eligible
+    assert response["stats"]["returned_count"] == len(ordered_ids)
+    assert [card["id"] for card in response["results"]] == ordered_ids
+    assert response["stats"]["city_category_total"] == eligible + sum(
+        response["stats"]["rejected_first_reason"].values()
+    )
+    assert response["message"]
+    if ordered_ids:
+        assert response["meta"]["scoring_version"] == "baseline-price-v1"
+        assert all(card["explanation"] and card["evidence"] for card in response["results"])
+
+
+@pytest.mark.parametrize(
+    "name,overrides,status,eligible,ordered_ids", SCENARIOS, ids=[s[0] for s in SCENARIOS]
+)
+def test_real_demo_pipeline_is_repeatable(name, overrides, status, eligible, ordered_ids):
+    contractors = load_contractors(DATASET)
+    request = scenario_query(overrides)
+    response = recommend(request, contractors)
+    assert_scenario(response, status, eligible, ordered_ids)
+    assert recommend(request, contractors) == response
+    # Rejections follow input order; ranking and data fingerprint must not.
+    reordered = recommend(request, list(reversed(contractors)))
+    assert reordered["results"] == response["results"]
+    assert reordered["meta"] == response["meta"]
+
+
+def test_real_date_pair_explains_disappearing_finalists_by_calendar():
+    contractors = load_contractors(DATASET)
+    first = recommend(scenario_query({}), contractors)
+    second = recommend(scenario_query({"date": "2026-10-08"}), contractors)
+    disappeared = {card["id"] for card in first["results"]} - {
+        card["id"] for card in second["results"]
+    }
+    assert disappeared == {"HK-88430", "HK-44923"}
+    by_id = {profile["id"]: profile for profile in contractors}
+    rejections = {entry["id"]: entry for entry in second["rejections"]}
+    for identifier in disappeared:
+        assert "2026-10-08" in by_id[identifier]["busy_dates"]
+        assert rejections[identifier]["primary_reason"] == "busy"
+
+
+@pytest.mark.parametrize(
+    "name,overrides,status,eligible,ordered_ids", SCENARIOS, ids=[s[0] for s in SCENARIOS]
+)
+def test_real_ui_uses_default_csv_and_production_pipeline(
+    monkeypatch, name, overrides, status, eligible, ordered_ids
+):
+    monkeypatch.delenv("CONTRACTORS_DATA", raising=False)
+    # Deliberately use another cwd: the default CSV must be relative to app.py.
+    monkeypatch.chdir(ROOT / "tests")
+    request = scenario_query(overrides)
+    app = AppTest.from_file(str(ROOT / "app.py"), default_timeout=20).run()
+    assert not app.exception
+    assert not app.error
+    for key in ("city", "event_type", "category", "language"):
+        app.selectbox(key=key).select(request[key])
+    app.date_input(key="date").set_value(date.fromisoformat(request["date"]))
+    app.number_input(key="budget").set_value(request["budget"])
+    app.number_input(key="duration").set_value(float(request["duration"]))
+    app.button[0].click().run()
+    assert not app.exception
+    assert not app.error
+    _, response, _ = app.session_state["last_result"]
+    assert_scenario(response, status, eligible, ordered_ids)
+
+
+def test_real_ui_respects_dataset_override_and_reports_missing_file(monkeypatch, tmp_path):
+    monkeypatch.setenv("CONTRACTORS_DATA", str(tmp_path / "absent.csv"))
+    app = AppTest.from_file(str(ROOT / "app.py"), default_timeout=20).run()
+    assert not app.exception
+    assert len(app.error) == 1
+    assert "Не удалось загрузить каталог" in app.error[0].value
+    assert "last_result" not in app.session_state

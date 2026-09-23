@@ -35,7 +35,7 @@ REJECTION_REASONS = (
 
 NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 PositiveInt = Annotated[StrictInt, Field(gt=0)]
-PositiveNumber = Annotated[int | float, Field(gt=0)]
+PositiveNumber = Annotated[int | float, Field(gt=0, allow_inf_nan=False)]
 
 
 class DatasetLoadError(ValueError):

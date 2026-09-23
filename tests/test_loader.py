@@ -98,3 +98,24 @@ def test_unsupported_extension_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(DatasetLoadError, match="expected .csv or .jsonl"):
         load_contractors(path)
+
+
+@pytest.mark.parametrize("hours", [float("inf"), float("-inf"), float("nan"), 0, -1, True])
+def test_nonfinite_or_nonpositive_max_hours_is_rejected(tmp_path: Path, hours) -> None:
+    path = tmp_path / "profiles.jsonl"
+    record = valid_profile()
+    record["max_hours"] = hours
+    write_jsonl(path, [record])
+
+    with pytest.raises(DatasetLoadError, match=r"line 1: field max_hours"):
+        load_contractors(path)
+
+
+@pytest.mark.parametrize("hours", [None, 0.5, 6, 6.0])
+def test_finite_and_null_max_hours_remain_supported(tmp_path: Path, hours) -> None:
+    path = tmp_path / "profiles.jsonl"
+    record = valid_profile()
+    record["max_hours"] = hours
+    write_jsonl(path, [record])
+
+    assert load_contractors(path)[0]["max_hours"] == hours

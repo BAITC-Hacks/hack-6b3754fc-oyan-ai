@@ -259,13 +259,23 @@ def _rank_and_build_cards(
         raise IntegrationContractError(
             "rank_candidates must return dictionaries containing id"
         ) from error
+    if any(not isinstance(identifier, str) for identifier in ranked_ids):
+        raise IntegrationContractError("rank_candidates must preserve string ids")
     if len(ranked_ids) != len(set(ranked_ids)) or set(ranked_ids) != set(eligible_ids):
         raise IntegrationContractError(
             "rank_candidates must return every eligible candidate exactly once"
         )
+    sources = {candidate["id"]: candidate for candidate in eligible}
+    for candidate in ranked:
+        for field, value in sources[candidate["id"]].items():
+            if field not in candidate or candidate[field] != value:
+                raise IntegrationContractError(
+                    f"rank_candidates changed source field {field!r}"
+                )
 
+    # Keep an independent snapshot: the builder may mutate the objects it receives.
     top_candidates = deepcopy(ranked[:3])
-    cards = card_builder(top_candidates, deepcopy(query))
+    cards = card_builder(deepcopy(top_candidates), deepcopy(query))
     if not isinstance(cards, list) or len(cards) != len(top_candidates):
         raise IntegrationContractError(
             "build_cards must return one card for every finalist"
@@ -284,15 +294,8 @@ def _rank_and_build_cards(
             raise IntegrationContractError(
                 f"build_cards must set a non-empty explanation at position {position}"
             )
-        for field in (
-            "anon_name",
-            "city",
-            "price_from_kzt",
-            "synthetic",
-            "city_imputed",
-            "price_imputed",
-        ):
-            if card.get(field) != finalist.get(field):
+        for field, value in sources[finalist["id"]].items():
+            if field not in card or card[field] != value:
                 raise IntegrationContractError(
                     f"build_cards changed source field {field!r} at position {position}"
                 )

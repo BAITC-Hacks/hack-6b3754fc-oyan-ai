@@ -101,7 +101,7 @@ class RankingTests(unittest.TestCase):
     def test_restarts_and_hash_seeds_preserve_complete_output(self):
         payload = {"query": QUERY, "rows": [profile("B"), profile("A"), profile("D", 300000), profile("C", 250000)]}
         script = ("import json,sys; from ranking import rank_candidates; from explanations import build_cards; "
-                  "d=json.load(sys.stdin); print(json.dumps(build_cards(rank_candidates(d['rows'],d['query'])[:3],d['query']),ensure_ascii=False,sort_keys=True))")
+                  "d=json.load(sys.stdin); print(json.dumps(build_cards(rank_candidates(d['rows'],d['query'])[:3],d['query']),ensure_ascii=True,sort_keys=True))")
         results = []
         for seed in ("0", "1", "128"):
             proc = subprocess.run([sys.executable, "-B", "-c", script], input=json.dumps(payload),
@@ -134,7 +134,7 @@ class SemanticRankingTests(unittest.TestCase):
                             "r=rank_candidates(d['rows'],d['query']); "
                             "assert rank_candidates(r,d['query'])==r; "
                             "print(json.dumps({'ranked':r,'cards':build_cards(r[:3],d['query']),"
-                            "'method':RANKING_METHOD,'version':SCORING_VERSION},sort_keys=True,ensure_ascii=False))")
+                            "'method':RANKING_METHOD,'version':SCORING_VERSION},sort_keys=True,ensure_ascii=True))")
         return subprocess.run([sys.executable, "-B", "-c", script],
                               input=json.dumps({"rows": self.rows if rows is None else rows, "query": QUERY}),
                               text=True, capture_output=True, cwd=Path(__file__).resolve().parents[1],
@@ -260,7 +260,8 @@ for name, case in cases.items():
     ordered = rank_candidates(case['rows'], case['query'])
     results[name] = {'ordered_ids': [r['id'] for r in ordered], 'cards': build_cards(ordered[:3], case['query'])}
 assert cases == before
-print(json.dumps(results, ensure_ascii=False, sort_keys=True))
+# ASCII JSON escapes preserve all Unicode text across Windows pipe encodings.
+print(json.dumps(results, ensure_ascii=True, sort_keys=True))
 """
         env = {**os.environ, "RANKING_MODE": mode, "PYTHONHASHSEED": seed}
         if mode == "semantic":
@@ -358,7 +359,7 @@ responses = {name: recommend(query, rows) for name, query in queries.items()}
 assert responses == {name: recommend(query, rows) for name, query in queries.items()}
 assert (queries, rows) == before
 print(json.dumps({'responses': responses, 'method': ranking.RANKING_METHOD,
-                  'version': ranking.SCORING_VERSION}, ensure_ascii=False, sort_keys=True))
+                  'version': ranking.SCORING_VERSION}, ensure_ascii=True, sort_keys=True))
 """
         env = {**os.environ, "RANKING_MODE": mode, "PYTHONHASHSEED": "37" if reverse else "0"}
         if mode == "semantic":

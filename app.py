@@ -230,7 +230,9 @@ def main():
     except ImportError:
         st.error("Сервис подбора ещё не подключён. Рекомендации пока недоступны.")
         return
-    dataset_path = Path(os.environ.get("CONTRACTORS_DATA", ROOT / "hackathon-dataset-anonymized.jsonl"))
+    dataset_path = Path(
+        os.environ.get("CONTRACTORS_DATA", ROOT / "docs" / "hackathon dataset anonymized .csv")
+    )
     try:
         contractors = load_contractors(dataset_path)
         catalog_options(contractors)
