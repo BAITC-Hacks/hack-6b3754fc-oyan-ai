@@ -202,7 +202,7 @@ class PreparedCatalogDemoTests(unittest.TestCase):
     No production loader/filters/statuses are implemented or inferred here.
     """
 
-    CACHE_SHA256 = "bd5b481f3538126ba2daf5de5c255185cdbcf8bd39c9ee0edb91c8ac8c6da09c"
+    CACHE_SHA256 = "69e7e573e3b01583b5da4e7aba45d4ddd694711bad4602f22e2e8b0e0e5b5533"
     BASELINE_TOP = {
         "dense": ["HK-88430", "HK-44923", "HK-29829"],
         "date_b": ["HK-29829", "HK-27222", "HK-44733"],
@@ -342,7 +342,7 @@ class PublishedCoreRankingTests(unittest.TestCase):
     def setUpClass(cls):
         PreparedCatalogDemoTests.setUpClass()
 
-    def run_pipeline(self, mode, reverse=False):
+    def run_pipeline(self, mode, reverse=False, variant=False):
         script = """
 import json, sys
 from copy import deepcopy
@@ -366,6 +366,10 @@ print(json.dumps({'responses': responses, 'method': ranking.RANKING_METHOD,
             env.update(RANKING_SEMANTIC_CACHE=os.environ["SEMANTIC_DEMO_CACHE"],
                        RANKING_SEMANTIC_SHA256=os.environ.get("SEMANTIC_DEMO_CACHE_SHA256", PreparedCatalogDemoTests.CACHE_SHA256))
         queries = {name: case["query"] for name, case in PreparedCatalogDemoTests.cases.items()}
+        if variant:
+            queries = {name: {**query, **{key: f"  {query[key].swapcase()}  "
+                                         for key in ("city", "event_type", "category", "language")}}
+                       for name, query in queries.items()}
         process = subprocess.run([sys.executable, "-B", "-c", script, str(CORE_DIR), "reverse" if reverse else "original"],
                                  input=json.dumps(queries), text=True, capture_output=True,
                                  cwd=Path(__file__).resolve().parents[1], env=env)
@@ -404,6 +408,30 @@ print(json.dumps({'responses': responses, 'method': ranking.RANKING_METHOD,
     @unittest.skipUnless(os.environ.get("SEMANTIC_DEMO_CACHE"), "optional integration: supply pinned real embedding cache")
     def test_semantic_real_core_default_imports_and_reproducibility(self):
         self.check_pipeline("semantic")
+
+    @unittest.skipUnless(os.environ.get("SEMANTIC_DEMO_CACHE"), "optional integration: supply pinned real embedding cache")
+    def test_semantic_core_accepts_case_and_space_variants_with_grounded_evidence(self):
+        canonical = self.run_pipeline("semantic")
+        variant = self.run_pipeline("semantic", reverse=True, variant=True)
+        self.assertEqual(variant, self.run_pipeline("semantic", reverse=True, variant=True))
+        for name, response in canonical["responses"].items():
+            with self.subTest(case=name):
+                changed = variant["responses"][name]
+                self.assertEqual(response["status"], changed["status"])
+                self.assertEqual(response["stats"], changed["stats"])
+                self.assertEqual(response["meta"], changed["meta"])
+                self.assertEqual([r["id"] for r in response["results"]], [r["id"] for r in changed["results"]])
+                for original, card in zip(response["results"], changed["results"]):
+                    for key in ("score", "score_breakdown", "description", "price_from_kzt"):
+                        self.assertEqual(original[key], card[key])
+                    self.assertEqual(card["category"], changed["query"]["category"])
+                    self.assertIn(f"формат «{changed['query']['event_type']}»", card["explanation"])
+                    self.assertIn(f"язык «{changed['query']['language']}» указан", card["explanation"])
+                    self.assertEqual([f for f in original["evidence"] if f["source"] == "profile"],
+                                     [f for f in card["evidence"] if f["source"] == "profile"])
+                    for fact in card["evidence"]:
+                        if fact["source"] == "query":
+                            self.assertEqual(fact["value"], changed["query"][fact["field"]])
 
 
 if __name__ == "__main__":

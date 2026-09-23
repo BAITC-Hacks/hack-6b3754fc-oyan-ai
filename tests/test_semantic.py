@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from semantic import SemanticCache, SemanticCacheError, _text_chunks, encode_with_local_model, prepare_semantic_cache, query_text, select_description_excerpt
 
@@ -102,6 +103,29 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(query_text(changed), query_text(self.query))
         self.assertEqual(self.load().similarity("A", changed), 1)
 
+    def test_query_case_and_edge_spaces_share_preparation_and_vectors(self):
+        variant = {"event_type": "  СВАДЬБА\t", "category": " ведущий "}
+        before = dict(variant)
+        self.assertEqual(query_text(variant), query_text(self.query))
+        self.assertEqual(self.prepare(queries=[self.query, variant]), self.content)
+        cache = self.load()
+        self.assertEqual(cache.similarity("A", variant), cache.similarity("A", self.query))
+        self.assertEqual(cache.evidence("A", variant, 1), cache.evidence("A", self.query, 1))
+        self.assertEqual(variant, before)
+
+    def test_query_normalization_does_not_change_internal_spaces_or_description(self):
+        cache = self.load()
+        for description, query in (("a", self.query), (" A ", self.query),
+                                   ("A", {**self.query, "category": "Ве дущий"})):
+            with self.subTest(description=description, query=query), self.assertRaises(SemanticCacheError):
+                cache.similarity(description, query)
+
+    def test_old_text_preparation_requires_explicit_rebuild(self):
+        data = json.loads(self.content)
+        data["text_version"] = "event-category-ru-excerpts320-v1"
+        with self.assertRaisesRegex(SemanticCacheError, "text preparation"):
+            self.load(json.dumps(data).encode())
+
     def test_snapshot_is_immutable_even_if_file_changes(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "cache.json"
@@ -165,6 +189,77 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(cache.excerpt(description, self.query)["value"], "Первая фраза")
 
 
+class PreparationCommandTests(unittest.TestCase):
+    def test_catalog_covers_cross_category_pairs_and_deduplicates_case(self):
+        from semantic import catalog_queries
+        rows = [{"event_formats": [" СВАДЬБА ", "той"], "categories": ["Ведущий"]},
+                {"event_formats": ["той"], "categories": ["Фотограф", " ведущий "]}]
+        before = json.dumps(rows, ensure_ascii=False)
+        expected = [{"event_type": event, "category": category}
+                    for event in ("свадьба", "той") for category in ("ведущий", "фотограф")]
+        self.assertEqual(catalog_queries(rows), expected)
+        self.assertEqual(catalog_queries(rows[::-1] + rows), expected)
+        self.assertEqual(json.dumps(rows, ensure_ascii=False), before)
+        with self.assertRaises(SemanticCacheError):
+            catalog_queries([])
+
+    def test_snapshot_checks_configuration_as_well_as_weights(self):
+        from semantic import _verify_local_snapshot
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            files = {"config.json": b"config", "model.safetensors": b"weights"}
+            for name, content in files.items():
+                (path / name).write_bytes(content)
+            hashes = {name: hashlib.sha256(content).hexdigest() for name, content in files.items()}
+            with patch("semantic.MODEL_FILES_SHA256", hashes):
+                (path / "README.md").write_text("model documentation")
+                _verify_local_snapshot(path)
+                (path / "added_tokens.json").write_text('{"свадьба":250002}')
+                with self.assertRaisesRegex(SemanticCacheError, "unverified local model file: added_tokens.json"):
+                    _verify_local_snapshot(path)
+                (path / "added_tokens.json").unlink()
+                (path / "config.json").write_text("changed tokenizer/model settings")
+                with self.assertRaisesRegex(SemanticCacheError, "mismatch: config.json"):
+                    _verify_local_snapshot(path)
+                (path / "config.json").unlink()
+                with self.assertRaisesRegex(SemanticCacheError, "missing local model file"):
+                    _verify_local_snapshot(path)
+
+    def test_publication_is_complete_and_cannot_clobber_previous_artifact(self):
+        from semantic import _publish_cache
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cache.json"
+            _publish_cache(b"complete cache", path)
+            with self.assertRaises(FileExistsError):
+                _publish_cache(b"replacement", path)
+            self.assertEqual(path.read_bytes(), b"complete cache")
+            self.assertEqual(list(Path(directory).iterdir()), [path])
+
+    def test_failed_publication_removes_temporary_file(self):
+        from semantic import _publish_cache
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("os.link", side_effect=OSError("test publication failure")):
+                with self.assertRaises(OSError):
+                    _publish_cache(b"complete cache", Path(directory) / "cache.json")
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_help_and_existing_output_need_no_loader_or_ml_packages(self):
+        import subprocess
+        import sys
+        script = Path(__file__).resolve().parents[1] / "semantic.py"
+        help_result = subprocess.run([sys.executable, "-B", str(script), "--help"], capture_output=True, text=True)
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn("--model-dir", help_result.stdout)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "existing.json"
+            output.write_bytes(b"keep me")
+            result = subprocess.run([sys.executable, "-B", str(script), "--dataset", "missing.csv",
+                                     "--model-dir", "missing-model", "--output", str(output)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("output already exists", result.stderr)
+            self.assertEqual(output.read_bytes(), b"keep me")
+
+
 class ChunkTests(unittest.TestCase):
     def test_chunks_keep_all_text_including_last_qualification(self):
         text = "свадьба " * 100 + "но только камерная"
@@ -196,6 +291,51 @@ class ChunkTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("SEMANTIC_TEST_MODEL_DIR"), "optional local model smoke: set SEMANTIC_TEST_MODEL_DIR")
 class LocalModelSmokeTest(unittest.TestCase):
+    @unittest.skipUnless((Path(os.environ.get("P2_CORE_DIR", Path(__file__).resolve().parents[1])) / "data_loader.py").is_file(),
+                         "optional preparation: supply P2_CORE_DIR or merge loader")
+    def test_real_preparation_command_repeats_and_refuses_overwrite(self):
+        import subprocess
+        import sys
+        from semantic import catalog_queries
+
+        root = Path(__file__).resolve().parents[1]
+        core = Path(os.environ.get("P2_CORE_DIR", root)).resolve()
+        env = {**os.environ, "PYTHONPATH": str(core)}
+        command = [sys.executable, "-B", str(root / "semantic.py"), "--dataset",
+                   str(root / "docs/hackathon dataset anonymized .csv"),
+                   "--model-dir", os.environ["SEMANTIC_TEST_MODEL_DIR"]]
+        with tempfile.TemporaryDirectory() as directory:
+            outputs = []
+            for index in range(2):
+                path = Path(directory) / f"cache-{index}.json"
+                result = subprocess.run([*command, "--output", str(path)], env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                report = json.loads(result.stdout)
+                content = path.read_bytes()
+                self.assertEqual(report["profiles"], 66)
+                self.assertEqual(report["query_pairs"], 102)
+                self.assertEqual(report["sha256"], hashlib.sha256(content).hexdigest())
+                SemanticCache.from_bytes(content, report["sha256"])
+                outputs.append(content)
+            self.assertEqual(outputs[0], outputs[1])
+            result = subprocess.run([*command, "--output", str(path)], env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("output already exists", result.stderr)
+            self.assertEqual(path.read_bytes(), outputs[1])
+            # Every query and source description/excerpt was included by the real loader path.
+            script = "from data_loader import load_contractors; import json,sys; print(json.dumps(load_contractors(sys.argv[1])))"
+            result = subprocess.run([sys.executable, "-B", "-c", script, command[4]],
+                                    env=env, cwd=directory, text=True, capture_output=True, check=True)
+            rows = json.loads(result.stdout)
+            cached_texts = {entry["text"] for entry in json.loads(outputs[0])["entries"].values()}
+            expected_texts = set()
+            def capture_texts(texts):
+                expected_texts.update(texts)
+                return [[1, 0] for _ in texts]
+            prepare_semantic_cache(rows, catalog_queries(rows), capture_texts,
+                                   model="explicit-test-fake", revision="a" * 40, encoder="fake-v1")
+            self.assertEqual(cached_texts, expected_texts)
+
     def test_real_pinned_model_recognizes_paraphrase_and_repeats(self):
         """Opt-in only: no installation, network access or account required here."""
         import importlib.metadata

@@ -86,7 +86,7 @@ def _requested_facts(candidate, query):
             facts.append(f"по календарю нет отметки о занятости на {date}")
     language = query.get("language")
     if language and isinstance(candidate.get("languages"), list):
-        label = "указан" if language in candidate["languages"] else "не указан"
+        label = "указан" if language.strip().casefold() in {value.strip().casefold() for value in candidate["languages"]} else "не указан"
         facts.append(f"запрошенный язык «{language}» {label} в профиле")
     duration = query.get("duration")
     if duration is not None and "max_hours" in candidate:
@@ -122,7 +122,7 @@ def _explain(candidate, query):
     if candidate.get("price_imputed"):
         first += " (цена проставлена при подготовке данных)"
     event = query.get("event_type")
-    if event in candidate.get("event_formats", []):
+    if event and event.strip().casefold() in {value.strip().casefold() for value in candidate.get("event_formats", [])}:
         first += f"; в каталоге указан формат «{event}»"
     if candidate.get("city_imputed"):
         first += f"; город «{candidate['city']}» проставлен при подготовке данных"

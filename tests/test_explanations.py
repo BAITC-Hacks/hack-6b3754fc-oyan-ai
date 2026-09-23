@@ -145,6 +145,19 @@ class ExplanationTests(unittest.TestCase):
             fact = next(e for e in card["evidence"] if e["source"] == source and e["field"] == field)
             self.assertEqual(fact["value"], expected)
 
+    def test_format_and_language_follow_core_case_equivalence_without_rewriting_evidence(self):
+        row = profile(event_formats=[" свадьба "], languages=[" Русский "])
+        query = {**QUERY, "event_type": "СВАДЬБА", "language": "РУССКИЙ"}
+        before = deepcopy((row, query))
+        card = build_cards([row], query)[0]
+        self.assertIn("в каталоге указан формат «СВАДЬБА»", card["explanation"])
+        self.assertIn("запрошенный язык «РУССКИЙ» указан в профиле", card["explanation"])
+        for source, field, value in (("profile", "languages", [" Русский "]),
+                                     ("query", "language", "РУССКИЙ")):
+            fact = next(e for e in card["evidence"] if e["source"] == source and e["field"] == field)
+            self.assertEqual(fact["value"], value)
+        self.assertEqual((row, query), before)
+
     def test_same_quote_and_price_different_hours_have_distinct_facts(self):
         rows = [profile("A", max_hours=8), profile("B", max_hours=10)]
         ranked = rank_candidates(rows, QUERY)
