@@ -1,0 +1,10 @@
+{
+  "application_root": ".",
+  "default_mode": "baseline",
+  "sources": {
+    "core": "7c0a1911c792f8c66d77d654a329dc558baad33e",
+    "ranking": "9a554ce90740e69fef812596c56b0f6b38766b41",
+    "ui": "7309b63aca8164e9afbd136913e6919d01b092f2"
+  },
+  "integration": "Source commits merged with history preserved; current modules are in the repository root. UI/demo additions from ready_project were transferred without replacing newer core/ranking code."
+}

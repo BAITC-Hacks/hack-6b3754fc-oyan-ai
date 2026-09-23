@@ -3,8 +3,8 @@
   "file_sha256": "6a724b6b7dfb5973343e68ba18dadb60fc807d87e3d78f03ee86fb26cb089f7d",
   "profile_count": 66,
   "mode": "baseline",
-  "python": "3.11.9",
-  "load_seconds": 0.029964113000460202,
+  "python": "3.12.13",
+  "load_seconds": 0.0029765840154141188,
   "cases": [
     {
       "name": "dense",
@@ -762,7 +762,7 @@
           "scoring_version": "baseline-price-v1"
         }
       },
-      "elapsed_seconds": 0.02892552000048454
+      "elapsed_seconds": 0.004310957971028984
     },
     {
       "name": "date_b",
@@ -1552,7 +1552,7 @@
           "scoring_version": "baseline-price-v1"
         }
       },
-      "elapsed_seconds": 0.027832858999317978
+      "elapsed_seconds": 0.0030765419942326844
     },
     {
       "name": "rare",
@@ -2049,7 +2049,7 @@
           "scoring_version": "baseline-price-v1"
         }
       },
-      "elapsed_seconds": 0.0324225309996109
+      "elapsed_seconds": 0.002899249957408756
     },
     {
       "name": "no_match",
@@ -2181,7 +2181,7 @@
           "scoring_version": "not_run"
         }
       },
-      "elapsed_seconds": 0.02427626499775215
+      "elapsed_seconds": 0.002083499974105507
     },
     {
       "name": "missing_category",
@@ -2227,7 +2227,12 @@
           "scoring_version": "not_run"
         }
       },
-      "elapsed_seconds": 0.022988765998888994
+      "elapsed_seconds": 0.0020177499973215163
     }
-  ]
+  ],
+  "build_sources": {
+    "core": "7c0a1911c792f8c66d77d654a329dc558baad33e",
+    "ranking": "9a554ce90740e69fef812596c56b0f6b38766b41",
+    "ui": "7309b63aca8164e9afbd136913e6919d01b092f2"
+  }
 }

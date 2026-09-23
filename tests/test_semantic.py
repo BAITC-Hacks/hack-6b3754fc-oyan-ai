@@ -300,7 +300,7 @@ class LocalModelSmokeTest(unittest.TestCase):
 
         root = Path(__file__).resolve().parents[1]
         core = Path(os.environ.get("P2_CORE_DIR", root)).resolve()
-        env = {**os.environ, "PYTHONPATH": str(core)}
+        env = {**os.environ, "PYTHONPATH": str(core), "PYTHONIOENCODING": "utf-8"}
         command = [sys.executable, "-B", str(root / "semantic.py"), "--dataset",
                    str(root / "docs/hackathon dataset anonymized .csv"),
                    "--model-dir", os.environ["SEMANTIC_TEST_MODEL_DIR"]]
@@ -308,7 +308,7 @@ class LocalModelSmokeTest(unittest.TestCase):
             outputs = []
             for index in range(2):
                 path = Path(directory) / f"cache-{index}.json"
-                result = subprocess.run([*command, "--output", str(path)], env=env, text=True, capture_output=True)
+                result = subprocess.run([*command, "--output", str(path)], env=env, encoding="utf-8", capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 report = json.loads(result.stdout)
                 content = path.read_bytes()
@@ -318,14 +318,14 @@ class LocalModelSmokeTest(unittest.TestCase):
                 SemanticCache.from_bytes(content, report["sha256"])
                 outputs.append(content)
             self.assertEqual(outputs[0], outputs[1])
-            result = subprocess.run([*command, "--output", str(path)], env=env, text=True, capture_output=True)
+            result = subprocess.run([*command, "--output", str(path)], env=env, encoding="utf-8", capture_output=True)
             self.assertEqual(result.returncode, 2)
             self.assertIn("output already exists", result.stderr)
             self.assertEqual(path.read_bytes(), outputs[1])
             # Every query and source description/excerpt was included by the real loader path.
             script = "from data_loader import load_contractors; import json,sys; print(json.dumps(load_contractors(sys.argv[1])))"
             result = subprocess.run([sys.executable, "-B", "-c", script, command[4]],
-                                    env=env, cwd=directory, text=True, capture_output=True, check=True)
+                                    env=env, cwd=directory, encoding="utf-8", capture_output=True, check=True)
             rows = json.loads(result.stdout)
             cached_texts = {entry["text"] for entry in json.loads(outputs[0])["entries"].values()}
             expected_texts = set()

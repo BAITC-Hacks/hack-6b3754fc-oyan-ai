@@ -1,6 +1,7 @@
 """Participant 3: presentation only; selection belongs to recommender.py."""
 
 from datetime import date
+import json
 import logging
 import math
 import os
@@ -159,6 +160,25 @@ def render_form(contractors, recommend):
     if not contractors or any(not options[k] for k in ("city", "category", "event_type")):
         st.error("Каталог не содержит данных для формы. Это ошибка загрузки, а не результат подбора.")
         return
+    demo_path = ROOT / "demo_queries.json"
+    if demo_path.exists():
+        demos = json.loads(demo_path.read_text(encoding="utf-8"))["cases"]
+
+        def apply_demo():
+            chosen = st.session_state["demo_choice"]
+            if chosen is not None:
+                request = next(item["query"] for item in demos if item["name"] == chosen)
+                for key, value in request.items():
+                    st.session_state[key] = date.fromisoformat(value) if key == "date" else value
+                st.session_state.pop("last_result", None)
+
+        labels = {item["name"]: item["label"] for item in demos}
+        st.selectbox(
+            "Готовый пример для проверки", [None, *labels], key="demo_choice",
+            format_func=lambda value: "Свои параметры" if value is None else labels[value],
+            on_change=apply_demo,
+        )
+        st.caption("Пример заполняет форму. Нажмите «Подобрать подрядчиков», чтобы выполнить настоящий запрос.")
     with st.form("request"):
         left, right = st.columns(2)
         city = left.selectbox("Город", options["city"], key="city")
@@ -230,9 +250,7 @@ def main():
     except ImportError:
         st.error("Сервис подбора ещё не подключён. Рекомендации пока недоступны.")
         return
-    dataset_path = Path(
-        os.environ.get("CONTRACTORS_DATA", ROOT / "docs" / "hackathon dataset anonymized .csv")
-    )
+    dataset_path = Path(os.environ.get("CONTRACTORS_DATA", ROOT / "docs" / "hackathon dataset anonymized .csv"))
     try:
         contractors = load_contractors(dataset_path)
         catalog_options(contractors)
