@@ -126,6 +126,22 @@ def test_real_date_pair_explains_disappearing_finalists_by_calendar():
         assert rejections[identifier]["primary_reason"] == "busy"
 
 
+@pytest.mark.parametrize("field", ["language", "event_type", "category", "city"])
+def test_real_baseline_case_and_space_variants_keep_grounded_explanations(field):
+    contractors = load_contractors(DATASET)
+    request = scenario_query({})
+    canonical = recommend(request, contractors)
+    request[field] = "  " + request[field].upper() + "  "
+    changed = recommend(request, contractors)
+    assert changed["status"] == canonical["status"]
+    assert changed["stats"] == canonical["stats"]
+    assert changed["meta"] == canonical["meta"]
+    assert [card["id"] for card in changed["results"]] == [card["id"] for card in canonical["results"]]
+    for card in changed["results"]:
+        assert f"язык «{changed['query']['language']}» указан" in card["explanation"]
+        assert f"формат «{changed['query']['event_type']}»" in card["explanation"]
+
+
 @pytest.mark.parametrize(
     "name,overrides,status,eligible,ordered_ids", SCENARIOS, ids=[s[0] for s in SCENARIOS]
 )

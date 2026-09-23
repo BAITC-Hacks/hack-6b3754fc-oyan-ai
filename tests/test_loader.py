@@ -9,7 +9,7 @@ from contracts import DatasetLoadError
 from data_loader import load_contractors
 
 
-DATASET = Path("docs/hackathon dataset anonymized .csv")
+DATASET = Path(__file__).resolve().parents[1] / "docs" / "hackathon dataset anonymized .csv"
 
 
 def valid_profile(identifier: str = "P-1") -> dict:

@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from time import perf_counter
 
@@ -34,4 +35,6 @@ def main():
 
 
 if __name__ == "__main__":
+    # Preserve Cyrillic and the tenge sign in Windows terminals and captured pipes.
+    sys.stdout.reconfigure(encoding="utf-8")
     main()
