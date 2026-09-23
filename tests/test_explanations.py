@@ -1,5 +1,7 @@
 from copy import deepcopy
+import csv
 import hashlib
+from pathlib import Path
 import unittest
 
 from explanations import build_cards
@@ -127,6 +129,117 @@ class ExplanationTests(unittest.TestCase):
         row["evidence"][1]["value"] = "Выдуманное преимущество"
         with self.assertRaises(ValueError):
             build_cards([row], QUERY)
+
+    def test_dates_and_requested_language_hours_are_grounded(self):
+        row = profile(languages=["русский", "казахский", "английский"], max_hours=10)
+        query = {**QUERY, "language": "казахский"}
+        card = build_cards([row], query)[0]
+        self.assertIn("по календарю нет отметки о занятости на 2026-11-14", card["explanation"])
+        self.assertIn("запрошенный язык «казахский» указан в профиле", card["explanation"])
+        self.assertIn("заявленные 10 ч покрывают запрошенные 6 ч", card["explanation"])
+        self.assertNotIn("английский", card["explanation"])
+        self.assertEqual(card["explanation"].count("."), 2)
+        for source, field in (("profile", "busy_dates"), ("profile", "max_hours"), ("profile", "languages"),
+                              ("query", "date"), ("query", "duration"), ("query", "language")):
+            expected = row[field] if source == "profile" else query[field]
+            fact = next(e for e in card["evidence"] if e["source"] == source and e["field"] == field)
+            self.assertEqual(fact["value"], expected)
+
+    def test_same_quote_and_price_different_hours_have_distinct_facts(self):
+        rows = [profile("A", max_hours=8), profile("B", max_hours=10)]
+        ranked = rank_candidates(rows, QUERY)
+        cards = build_cards(ranked, QUERY)
+        self.assertEqual(cards[0]["score"], cards[1]["score"])
+        self.assertNotEqual(cards[0]["explanation"], cards[1]["explanation"])
+        self.assertIn("заявленные 8 ч", cards[0]["explanation"])
+        self.assertIn("заявленные 10 ч", cards[1]["explanation"])
+        self.assertNotIn("факты совпадают", cards[0]["explanation"])
+
+    def test_optional_conditions_are_omitted_when_not_requested(self):
+        row = profile(max_hours=10, languages=["русский", "английский"])
+        for query in ({**QUERY, "duration": None, "language": None},
+                      {k: v for k, v in QUERY.items() if k not in ("duration", "language")}):
+            with self.subTest(query=query):
+                text = build_cards([row], query)[0]["explanation"]
+                self.assertNotIn("запрошенн", text)
+                self.assertNotIn("английский", text)
+
+    def test_duration_boundary_fractional_and_null_are_honest(self):
+        for maximum, duration, expected in ((6, 6, "заявленные 6 ч покрывают запрошенные 6 ч"),
+                                             (6.5, 6.25, "заявленные 6.5 ч покрывают запрошенные 6.25 ч"),
+                                             (None, 12, "услуга не привязана к присутствию на площадке")):
+            with self.subTest(maximum=maximum):
+                text = build_cards([profile(max_hours=maximum)], {**QUERY, "duration": duration})[0]["explanation"]
+                self.assertIn(expected, text)
+                if maximum is None:
+                    self.assertNotIn("покрывают", text)
+                    self.assertNotIn("безлимит", text)
+
+    def test_missing_fields_do_not_become_assurances(self):
+        row = profile()
+        for key in ("busy_dates", "max_hours", "languages"):
+            del row[key]
+        text = build_cards([row], {**QUERY, "language": "русский"})[0]["explanation"]
+        for phrase in ("по календарю", "запрошенный язык", "привязана", "покрывают"):
+            self.assertNotIn(phrase, text)
+        row["busy_dates"] = None
+        self.assertNotIn("по календарю", build_cards([row], QUERY)[0]["explanation"])
+
+    def test_contradictory_core_input_is_not_mislabeled_or_filtered(self):
+        row = profile(busy_dates=[QUERY["date"]], max_hours=4, languages=["русский"])
+        cards = build_cards([row], {**QUERY, "language": "казахский"})
+        self.assertEqual([c["id"] for c in cards], [row["id"]])
+        text = cards[0]["explanation"]
+        self.assertIn("есть отметка о занятости", text)
+        self.assertIn("«казахский» не указан", text)
+        self.assertIn("заявлено 4 ч, меньше запрошенных 6 ч", text)
+        self.assertNotIn("нет отметки", text)
+        self.assertNotIn("покрывают", text)
+
+    def test_calendar_evidence_is_a_copy(self):
+        row = profile(busy_dates=["2026-12-01"])
+        card = build_cards([row], QUERY)[0]
+        next(e for e in card["evidence"] if e["field"] == "busy_dates")["value"].append(QUERY["date"])
+        self.assertEqual(row["busy_dates"], ["2026-12-01"])
+        self.assertEqual(card["busy_dates"], ["2026-12-01"])
+
+    def test_semantic_mode_keeps_score_but_reflects_new_request_conditions(self):
+        row = self.semantic_row()
+        row["max_hours"] = 10
+        row["languages"] = ["русский", "казахский"]
+        changed = {**QUERY, "date": "2026-11-15", "language": "казахский", "duration": 10}
+        first, second = build_cards([row], QUERY)[0], build_cards([row], changed)[0]
+        self.assertNotEqual(first["explanation"], second["explanation"])
+        self.assertEqual(first["score_breakdown"], second["score_breakdown"])
+        self.assertIn("2026-11-15", second["explanation"])
+        self.assertIn("запрошенные 10 ч", second["explanation"])
+        self.assertIn("смысловой близости", second["explanation"])
+
+    def test_supplied_csv_profile_reflects_actual_date_and_hours(self):
+        """Reference regression on supplied CSV; not a JSONL/core acceptance test."""
+        path = Path(__file__).resolve().parents[1] / "docs/hackathon dataset anonymized .csv"
+        with path.open(encoding="utf-8-sig", newline="") as stream:
+            raw = next(row for row in csv.DictReader(stream) if row["id"] == "HK-42352")
+        row = dict(raw)
+        for key in ("categories", "event_formats", "languages", "busy_dates"):
+            row[key] = raw[key].split("|")
+        row["price_from_kzt"] = int(raw["price_from_kzt"])
+        row["max_hours"] = float(raw["max_hours"])
+        for key in ("synthetic", "price_imputed", "city_imputed"):
+            row[key] = raw[key] == "True"
+        first_query = {**QUERY, "budget": 1000000, "date": "2026-09-30", "language": "казахский"}
+        second_query = {**first_query, "date": "2026-10-07", "duration": 10}
+        self.assertEqual(row["max_hours"], 10)
+        self.assertIn("казахский", row["languages"])
+        for query in (first_query, second_query):
+            self.assertNotIn(query["date"], row["busy_dates"])
+        first = build_cards([row], first_query)[0]["explanation"]
+        second = build_cards([row], second_query)[0]["explanation"]
+        self.assertNotEqual(first, second)
+        self.assertIn("запрошенные 6 ч", first)
+        self.assertIn("запрошенные 10 ч", second)
+        self.assertIn("2026-09-30", first)
+        self.assertIn("2026-10-07", second)
 
 
 if __name__ == "__main__":

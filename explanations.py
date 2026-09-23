@@ -47,7 +47,7 @@ def collect_evidence(candidate, query):
     evidence = []
     for source, record, fields in (
         ("profile", candidate, ("price_from_kzt", "event_formats", "city", "max_hours",
-                                "languages", "synthetic", "price_imputed", "city_imputed")),
+                                "languages", "busy_dates", "synthetic", "price_imputed", "city_imputed")),
         ("query", query, ("budget", "event_type", "category", "date", "duration", "language")),
     ):
         for field in fields:
@@ -67,6 +67,40 @@ def _money(value):
     if "." in text:
         text = text.rstrip("0").rstrip(".")
     return text.replace(",", " ")
+
+
+def _requested_facts(candidate, query):
+    """Describe recorded conditions, never filter or infer missing capabilities.
+
+    Query validation and candidate eligibility belong to the core. If it passes
+    a contradictory profile, report the recorded mismatch instead of promising
+    availability/coverage or silently removing a card.
+    """
+    facts = []
+    date = query.get("date")
+    calendar = candidate.get("busy_dates")
+    if date and isinstance(calendar, list):
+        if date in calendar:
+            facts.append(f"в календаре есть отметка о занятости на {date}")
+        else:
+            facts.append(f"по календарю нет отметки о занятости на {date}")
+    language = query.get("language")
+    if language and isinstance(candidate.get("languages"), list):
+        label = "указан" if language in candidate["languages"] else "не указан"
+        facts.append(f"запрошенный язык «{language}» {label} в профиле")
+    duration = query.get("duration")
+    if duration is not None and "max_hours" in candidate:
+        maximum = candidate["max_hours"]
+        if maximum is None:
+            facts.append("услуга не привязана к присутствию на площадке")
+        else:
+            maximum = numeric_value(maximum, "max_hours")
+            requested = numeric_value(duration, "duration")
+            if maximum >= requested:
+                facts.append(f"заявленные {_money(maximum)} ч покрывают запрошенные {_money(requested)} ч")
+            else:
+                facts.append(f"заявлено {_money(maximum)} ч, меньше запрошенных {_money(requested)} ч")
+    return facts
 
 
 def _explain(candidate, query):
@@ -92,6 +126,9 @@ def _explain(candidate, query):
         first += f"; в каталоге указан формат «{event}»"
     if candidate.get("city_imputed"):
         first += f"; город «{candidate['city']}» проставлен при подготовке данных"
+    requested_facts = _requested_facts(candidate, query)
+    if requested_facts:
+        first += "; " + "; ".join(requested_facts)
     first += "."
 
     excerpt = _description_evidence(candidate, query, semantic_fact)
