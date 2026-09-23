@@ -1,0 +1,321 @@
+{
+  "verification_status": "blocked_pending_core_and_jsonl",
+  "note": "Реальный recommend и согласованный JSONL пока отсутствуют. Подтверждённых demo-запросов нет; ответы UI-тестов не являются демо.",
+  "reference_csv": {
+    "path": "docs/hackathon dataset anonymized .csv",
+    "sha256": "6a724b6b7dfb5973343e68ba18dadb60fc807d87e3d78f03ee86fb26cb089f7d",
+    "profile_count": 66
+  },
+  "verified_cases": [],
+  "required_scenarios": [
+    "dense_autumn_more_than_three_eligible",
+    "rare_one_or_two_eligible",
+    "no_matching_candidates",
+    "category_not_found",
+    "same_query_two_dates_with_busy_evidence",
+    "repeat_and_process_restart_same_order"
+  ],
+  "required_case_fields": [
+    "name",
+    "query",
+    "status",
+    "ordered_ids",
+    "eligible_count",
+    "returned_count",
+    "message",
+    "dataset_hash",
+    "scoring_version",
+    "ranking_method",
+    "elapsed_seconds",
+    "demonstrates"
+  ],
+  "date_pair_evidence_required": [
+    "first_case",
+    "second_case",
+    "disappeared_id",
+    "busy_date",
+    "second_response_rejection"
+  ],
+  "prepared_cases": [
+    {
+      "name": "dense",
+      "query": {
+        "city": "Алматы",
+        "date": "2026-10-06",
+        "event_type": "корпоратив",
+        "category": "Ведущий",
+        "budget": 1000000,
+        "duration": 6,
+        "language": "русский"
+      },
+      "verification_status": "csv_reference_only_not_run_through_recommend",
+      "reference_city_category_total": 10,
+      "reference_eligible_ids_unordered": [
+        "HK-27222",
+        "HK-29829",
+        "HK-35215",
+        "HK-44733",
+        "HK-44923",
+        "HK-88430"
+      ],
+      "reference_rejected_first_reason": {
+        "busy": 1,
+        "over_budget": 2,
+        "wrong_format": 1,
+        "wrong_language": 0,
+        "too_short": 0
+      },
+      "reference_rejections": [
+        {
+          "id": "HK-42352",
+          "reasons": [
+            "wrong_format"
+          ]
+        },
+        {
+          "id": "HK-77838",
+          "reasons": [
+            "busy"
+          ]
+        },
+        {
+          "id": "HK-72938",
+          "reasons": [
+            "over_budget"
+          ]
+        },
+        {
+          "id": "HK-75012",
+          "reasons": [
+            "over_budget"
+          ]
+        }
+      ],
+      "observed_response": null
+    },
+    {
+      "name": "date_b",
+      "query": {
+        "city": "Алматы",
+        "date": "2026-10-08",
+        "event_type": "корпоратив",
+        "category": "Ведущий",
+        "budget": 1000000,
+        "duration": 6,
+        "language": "русский"
+      },
+      "verification_status": "csv_reference_only_not_run_through_recommend",
+      "reference_city_category_total": 10,
+      "reference_eligible_ids_unordered": [
+        "HK-27222",
+        "HK-29829",
+        "HK-44733"
+      ],
+      "reference_rejected_first_reason": {
+        "busy": 6,
+        "over_budget": 1,
+        "wrong_format": 0,
+        "wrong_language": 0,
+        "too_short": 0
+      },
+      "reference_rejections": [
+        {
+          "id": "HK-88430",
+          "reasons": [
+            "busy"
+          ]
+        },
+        {
+          "id": "HK-42352",
+          "reasons": [
+            "busy",
+            "wrong_format"
+          ]
+        },
+        {
+          "id": "HK-44923",
+          "reasons": [
+            "busy"
+          ]
+        },
+        {
+          "id": "HK-35215",
+          "reasons": [
+            "busy"
+          ]
+        },
+        {
+          "id": "HK-77838",
+          "reasons": [
+            "busy"
+          ]
+        },
+        {
+          "id": "HK-72938",
+          "reasons": [
+            "busy",
+            "over_budget"
+          ]
+        },
+        {
+          "id": "HK-75012",
+          "reasons": [
+            "over_budget"
+          ]
+        }
+      ],
+      "observed_response": null
+    },
+    {
+      "name": "rare",
+      "query": {
+        "city": "Алматы",
+        "date": "2026-10-09",
+        "event_type": "свадьба",
+        "category": "Флорист",
+        "budget": 300000,
+        "duration": 6,
+        "language": "русский"
+      },
+      "verification_status": "csv_reference_only_not_run_through_recommend",
+      "reference_city_category_total": 2,
+      "reference_eligible_ids_unordered": [
+        "HK-39372",
+        "HK-90001"
+      ],
+      "reference_rejected_first_reason": {
+        "busy": 0,
+        "over_budget": 0,
+        "wrong_format": 0,
+        "wrong_language": 0,
+        "too_short": 0
+      },
+      "reference_rejections": [],
+      "observed_response": null
+    },
+    {
+      "name": "no_match",
+      "query": {
+        "city": "Алматы",
+        "date": "2026-10-09",
+        "event_type": "корпоратив",
+        "category": "Ведущий",
+        "budget": 100000,
+        "duration": 6,
+        "language": "русский"
+      },
+      "verification_status": "csv_reference_only_not_run_through_recommend",
+      "reference_city_category_total": 10,
+      "reference_eligible_ids_unordered": [],
+      "reference_rejected_first_reason": {
+        "busy": 4,
+        "over_budget": 6,
+        "wrong_format": 0,
+        "wrong_language": 0,
+        "too_short": 0
+      },
+      "reference_rejections": [
+        {
+          "id": "HK-44733",
+          "reasons": [
+            "over_budget"
+          ]
+        },
+        {
+          "id": "HK-88430",
+          "reasons": [
+            "over_budget"
+          ]
+        },
+        {
+          "id": "HK-42352",
+          "reasons": [
+            "over_budget",
+            "wrong_format"
+          ]
+        },
+        {
+          "id": "HK-44923",
+          "reasons": [
+            "busy",
+            "over_budget"
+          ]
+        },
+        {
+          "id": "HK-35215",
+          "reasons": [
+            "over_budget"
+          ]
+        },
+        {
+          "id": "HK-77838",
+          "reasons": [
+            "over_budget"
+          ]
+        },
+        {
+          "id": "HK-72938",
+          "reasons": [
+            "busy",
+            "over_budget"
+          ]
+        },
+        {
+          "id": "HK-27222",
+          "reasons": [
+            "busy",
+            "over_budget"
+          ]
+        },
+        {
+          "id": "HK-75012",
+          "reasons": [
+            "over_budget"
+          ]
+        },
+        {
+          "id": "HK-29829",
+          "reasons": [
+            "busy",
+            "over_budget"
+          ]
+        }
+      ],
+      "observed_response": null
+    },
+    {
+      "name": "missing_category",
+      "query": {
+        "city": "Астана",
+        "date": "2026-10-09",
+        "event_type": "корпоратив",
+        "category": "Инструменталист",
+        "budget": 1000000,
+        "duration": 6,
+        "language": "русский"
+      },
+      "verification_status": "csv_reference_only_not_run_through_recommend",
+      "reference_city_category_total": 0,
+      "reference_eligible_ids_unordered": [],
+      "reference_rejected_first_reason": {
+        "busy": 0,
+        "over_budget": 0,
+        "wrong_format": 0,
+        "wrong_language": 0,
+        "too_short": 0
+      },
+      "reference_rejections": [],
+      "observed_response": null
+    }
+  ],
+  "date_pair_reference": {
+    "first_case": "dense",
+    "second_case": "date_b",
+    "busy_on_second_date": [
+      "HK-88430",
+      "HK-44923",
+      "HK-35215"
+    ],
+    "note": "Эти профили проходят условия на 6 октября и заняты 8 октября по CSV; состав TOP-3 ещё не подтверждён реальным recommend."
+  }
+}
