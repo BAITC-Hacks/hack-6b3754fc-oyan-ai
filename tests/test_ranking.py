@@ -1,6 +1,7 @@
-"""Explicitly synthetic fixtures: these do not establish real-catalog results."""
+"""Synthetic unit fixtures and labelled CSV reference regressions, not full-app acceptance."""
 
 from copy import deepcopy
+import csv
 import itertools
 import hashlib
 import json
@@ -182,6 +183,141 @@ class SemanticRankingTests(unittest.TestCase):
         baseline = self.run_process(env={**self.env, "RANKING_MODE": "baseline", "RANKING_SEMANTIC_CACHE": "/missing"})
         self.assertEqual(baseline.returncode, 0, baseline.stderr)
         self.assertEqual(json.loads(baseline.stdout)["ranked"][0]["id"], "A")
+
+
+class PreparedCatalogDemoTests(unittest.TestCase):
+    """P3 reference inputs at 5f85877; verify only P2's ranking/cards boundary.
+
+    Eligible IDs come from prepared_cases in that commit's demo_queries.json.
+    No production loader/filters/statuses are implemented or inferred here.
+    """
+
+    CACHE_SHA256 = "bd5b481f3538126ba2daf5de5c255185cdbcf8bd39c9ee0edb91c8ac8c6da09c"
+    BASELINE_TOP = {
+        "dense": ["HK-88430", "HK-44923", "HK-29829"],
+        "date_b": ["HK-29829", "HK-27222", "HK-44733"],
+        "rare": ["HK-39372", "HK-90001"], "no_match": [], "missing_category": [],
+    }
+    SEMANTIC_TOP = {
+        "dense": ["HK-88430", "HK-44733", "HK-44923"],
+        "date_b": ["HK-44733", "HK-27222", "HK-29829"],
+        "rare": ["HK-90001", "HK-39372"], "no_match": [], "missing_category": [],
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        root = Path(__file__).resolve().parents[1]
+        with (root / "docs/hackathon dataset anonymized .csv").open(encoding="utf-8-sig", newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        cls.catalog = {}
+        for raw in rows:
+            row = dict(raw)
+            for key in ("categories", "event_formats", "languages", "busy_dates"):
+                row[key] = raw[key].split("|") if raw[key] else []
+            row["price_from_kzt"] = int(raw["price_from_kzt"])
+            row["max_hours"] = float(raw["max_hours"]) if raw["max_hours"] else None
+            for key in ("synthetic", "price_imputed", "city_imputed"):
+                row[key] = raw[key] == "True"
+            cls.catalog[row["id"]] = row
+        dense_query = {"city": "Алматы", "date": "2026-10-06", "event_type": "корпоратив",
+                       "category": "Ведущий", "budget": 1000000, "duration": 6, "language": "русский"}
+        refs = {
+            "dense": (dense_query, ["HK-27222", "HK-29829", "HK-35215", "HK-44733", "HK-44923", "HK-88430"]),
+            "date_b": ({**dense_query, "date": "2026-10-08"}, ["HK-27222", "HK-29829", "HK-44733"]),
+            "rare": ({**dense_query, "date": "2026-10-09", "event_type": "свадьба", "category": "Флорист", "budget": 300000},
+                     ["HK-39372", "HK-90001"]),
+            "no_match": ({**dense_query, "date": "2026-10-09", "budget": 100000}, []),
+            "missing_category": ({**dense_query, "date": "2026-10-09", "city": "Астана", "category": "Инструменталист"}, []),
+        }
+        cls.cases = {name: {"query": query, "rows": [cls.catalog[i] for i in ids]} for name, (query, ids) in refs.items()}
+        cls.baseline = cls.run_cases()
+
+    @classmethod
+    def run_cases(cls, *, mode="baseline", reverse=False, seed="0"):
+        cases = deepcopy(cls.cases)
+        if reverse:
+            for case in cases.values():
+                case["rows"].reverse()
+        script = """
+import json, sys
+from copy import deepcopy
+from ranking import rank_candidates
+from explanations import build_cards
+cases = json.load(sys.stdin)
+before = deepcopy(cases)
+results = {}
+for name, case in cases.items():
+    ordered = rank_candidates(case['rows'], case['query'])
+    results[name] = {'ordered_ids': [r['id'] for r in ordered], 'cards': build_cards(ordered[:3], case['query'])}
+assert cases == before
+print(json.dumps(results, ensure_ascii=False, sort_keys=True))
+"""
+        env = {**os.environ, "RANKING_MODE": mode, "PYTHONHASHSEED": seed}
+        if mode == "semantic":
+            env.update(RANKING_SEMANTIC_CACHE=os.environ["SEMANTIC_DEMO_CACHE"],
+                       RANKING_SEMANTIC_SHA256=os.environ.get("SEMANTIC_DEMO_CACHE_SHA256", cls.CACHE_SHA256))
+        process = subprocess.run([sys.executable, "-B", "-c", script], input=json.dumps(cases),
+                                 text=True, capture_output=True, check=True,
+                                 cwd=Path(__file__).resolve().parents[1], env=env)
+        return json.loads(process.stdout)
+
+    def check_cases(self, results, expected):
+        for name, result in results.items():
+            with self.subTest(case=name):
+                rows, query = self.cases[name]["rows"], self.cases[name]["query"]
+                self.assertCountEqual(result["ordered_ids"], [r["id"] for r in rows])
+                self.assertEqual([c["id"] for c in result["cards"]], expected[name])
+                self.assertEqual(len(result["cards"]), min(3, len(rows)))
+                masked_explanations = []
+                for card in result["cards"]:
+                    original = self.catalog[card["id"]]
+                    masked_explanations.append(card["explanation"].replace(original["anon_name"], ""))
+                    self.assertIn(query["date"], card["explanation"])
+                    self.assertNotIn(query["date"], original["busy_dates"])
+                    for key in ("synthetic", "city_imputed", "price_imputed"):
+                        self.assertEqual(card[key], original[key])
+                    for fact in card["evidence"]:
+                        source = original if fact["source"] == "profile" else query
+                        if fact["field"] == "description" and fact.get("role") != "semantic_scoring":
+                            self.assertEqual(original["description"][fact["start"]:fact["end"]], fact["value"])
+                            self.assertIn(fact["value"], card["explanation"])
+                        else:
+                            self.assertEqual(source[fact["field"]], fact["value"])
+                self.assertEqual(len(set(masked_explanations)), len(masked_explanations))
+
+    def check_date_pair(self, results):
+        first = {c["id"] for c in results["dense"]["cards"]}
+        second = {c["id"] for c in results["date_b"]["cards"]}
+        self.assertEqual(first - second, {"HK-88430", "HK-44923"})
+        for identifier in first - second:
+            self.assertNotIn("2026-10-06", self.catalog[identifier]["busy_dates"])
+            self.assertIn("2026-10-08", self.catalog[identifier]["busy_dates"])
+
+    def test_baseline_top3_and_evidence_for_all_prepared_cases(self):
+        self.check_cases(self.baseline, self.BASELINE_TOP)
+
+    def test_baseline_date_pair_loses_busy_profiles(self):
+        self.check_date_pair(self.baseline)
+
+    def test_baseline_reversal_and_fresh_process_preserve_cards(self):
+        self.assertEqual(self.baseline, self.run_cases(reverse=True, seed="37"))
+
+    def test_rare_category_keeps_two_and_null_hours(self):
+        cards = self.baseline["rare"]["cards"]
+        self.assertEqual(len(cards), 2)
+        for card in cards:
+            self.assertIsNone(card["max_hours"])
+            self.assertIn("не привязана к присутствию", card["explanation"])
+        self.assertFalse(cards[0]["synthetic"])
+        self.assertTrue(cards[0]["price_imputed"])
+        self.assertTrue(cards[1]["synthetic"])
+
+    @unittest.skipUnless(os.environ.get("SEMANTIC_DEMO_CACHE"), "optional prepared demo: supply pinned real embedding cache")
+    def test_real_semantic_cache_top3_dates_evidence_and_restart(self):
+        results = self.run_cases(mode="semantic")
+        self.check_cases(results, self.SEMANTIC_TOP)
+        self.check_date_pair(results)
+        self.assertEqual(results, self.run_cases(mode="semantic", reverse=True, seed="57"))
 
 
 if __name__ == "__main__":
