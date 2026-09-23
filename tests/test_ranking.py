@@ -202,7 +202,7 @@ class PreparedCatalogDemoTests(unittest.TestCase):
     No production loader/filters/statuses are implemented or inferred here.
     """
 
-    CACHE_SHA256 = "49ba8fbda223ab7a0dec5377630eea9376655a18be203611deedd083b33baf60"
+    CACHE_SHA256 = "69e7e573e3b01583b5da4e7aba45d4ddd694711bad4602f22e2e8b0e0e5b5533"
     BASELINE_TOP = {
         "dense": ["HK-88430", "HK-44923", "HK-29829"],
         "date_b": ["HK-29829", "HK-27222", "HK-44733"],
