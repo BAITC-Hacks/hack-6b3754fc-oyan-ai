@@ -1,4 +1,4 @@
-"""Synthetic unit fixtures and labelled CSV reference regressions, not full-app acceptance."""
+"""Ranking regressions and optional real-core checks, without UI acceptance."""
 
 from copy import deepcopy
 import csv
@@ -30,6 +30,16 @@ QUERY = {"city": "Алматы", "date": "2026-11-14", "category": "Ведущи
 
 
 class RankingTests(unittest.TestCase):
+    def test_public_module_exports_card_builder_for_core(self):
+        from ranking import build_cards
+
+        rows = [profile("B"), profile("A")]
+        before = deepcopy(rows)
+        cards = build_cards(rank_candidates(rows, QUERY), QUERY)
+        self.assertEqual([card["id"] for card in cards], ["A", "B"])
+        self.assertTrue(all(card["explanation"] and card["evidence"] for card in cards))
+        self.assertEqual(rows, before)
+
     def test_empty_single_two_and_more_than_three(self):
         for size in (0, 1, 2, 5):
             with self.subTest(size=size):
@@ -318,6 +328,81 @@ print(json.dumps(results, ensure_ascii=False, sort_keys=True))
         self.check_cases(results, self.SEMANTIC_TOP)
         self.check_date_pair(results)
         self.assertEqual(results, self.run_cases(mode="semantic", reverse=True, seed="57"))
+
+
+CORE_DIR = Path(os.environ.get("P2_CORE_DIR", Path(__file__).resolve().parents[1])).resolve()
+
+
+@unittest.skipUnless((CORE_DIR / "recommender.py").is_file(), "optional integration: supply P2_CORE_DIR or merge core")
+class PublishedCoreRankingTests(unittest.TestCase):
+    """Use the real loader/recommend and default imports, never injected adapters."""
+
+    @classmethod
+    def setUpClass(cls):
+        PreparedCatalogDemoTests.setUpClass()
+
+    def run_pipeline(self, mode, reverse=False):
+        script = """
+import json, sys
+from copy import deepcopy
+sys.path.append(sys.argv[1])
+from data_loader import load_contractors
+from recommender import recommend
+import ranking
+queries = json.load(sys.stdin)
+rows = load_contractors('docs/hackathon dataset anonymized .csv')
+if sys.argv[2] == 'reverse':
+    rows.reverse()
+before = deepcopy((queries, rows))
+responses = {name: recommend(query, rows) for name, query in queries.items()}
+assert responses == {name: recommend(query, rows) for name, query in queries.items()}
+assert (queries, rows) == before
+print(json.dumps({'responses': responses, 'method': ranking.RANKING_METHOD,
+                  'version': ranking.SCORING_VERSION}, ensure_ascii=False, sort_keys=True))
+"""
+        env = {**os.environ, "RANKING_MODE": mode, "PYTHONHASHSEED": "37" if reverse else "0"}
+        if mode == "semantic":
+            env.update(RANKING_SEMANTIC_CACHE=os.environ["SEMANTIC_DEMO_CACHE"],
+                       RANKING_SEMANTIC_SHA256=os.environ.get("SEMANTIC_DEMO_CACHE_SHA256", PreparedCatalogDemoTests.CACHE_SHA256))
+        queries = {name: case["query"] for name, case in PreparedCatalogDemoTests.cases.items()}
+        process = subprocess.run([sys.executable, "-B", "-c", script, str(CORE_DIR), "reverse" if reverse else "original"],
+                                 input=json.dumps(queries), text=True, capture_output=True,
+                                 cwd=Path(__file__).resolve().parents[1], env=env)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        return json.loads(process.stdout)
+
+    def check_pipeline(self, mode):
+        first, second = self.run_pipeline(mode), self.run_pipeline(mode, reverse=True)
+        reference = PreparedCatalogDemoTests.run_cases(mode=mode)
+        expected_stats = {"dense": (10, 6, 3), "date_b": (10, 3, 3), "rare": (2, 2, 2),
+                          "no_match": (10, 0, 0), "missing_category": (0, 0, 0)}
+        for name, response in first["responses"].items():
+            with self.subTest(mode=mode, case=name):
+                self.assertEqual(response["results"], reference[name]["cards"])
+                other = second["responses"][name]
+                # Rejections retain catalog order in P1's core; ranking must not depend on it.
+                for key in ("status", "query", "results", "stats", "meta", "message"):
+                    self.assertEqual(response[key], other[key])
+                self.assertEqual(sorted(response["rejections"], key=lambda r: r["id"]),
+                                 sorted(other["rejections"], key=lambda r: r["id"]))
+                stats = response["stats"]
+                self.assertEqual(tuple(stats[k] for k in ("city_category_total", "eligible_count", "returned_count")), expected_stats[name])
+                self.assertEqual(stats["city_category_total"], stats["eligible_count"] + sum(stats["rejected_first_reason"].values()))
+                status = {"no_match": "no_matching_candidates", "missing_category": "category_not_found"}.get(name, "success")
+                self.assertEqual(response["status"], status)
+                self.assertEqual(response["meta"]["ranking_method"], first["method"] if status == "success" else "not_run")
+                self.assertEqual(response["meta"]["scoring_version"], first["version"] if status == "success" else "not_run")
+        rejected = {row["id"]: row for row in first["responses"]["date_b"]["rejections"]}
+        for identifier in ("HK-88430", "HK-44923"):
+            self.assertEqual(rejected[identifier]["primary_reason"], "busy")
+            self.assertIn("busy", rejected[identifier]["reasons"])
+
+    def test_baseline_real_core_default_imports_and_reproducibility(self):
+        self.check_pipeline("baseline")
+
+    @unittest.skipUnless(os.environ.get("SEMANTIC_DEMO_CACHE"), "optional integration: supply pinned real embedding cache")
+    def test_semantic_real_core_default_imports_and_reproducibility(self):
+        self.check_pipeline("semantic")
 
 
 if __name__ == "__main__":

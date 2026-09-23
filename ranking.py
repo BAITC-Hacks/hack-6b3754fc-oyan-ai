@@ -3,7 +3,8 @@
 from copy import deepcopy
 import os
 
-from explanations import collect_evidence
+# Public integration surface: the core resolves both functions from this module.
+from explanations import build_cards, collect_evidence
 from scoring import RANKING_METHOD, SCORING_VERSION, numeric_value, score_candidate
 from semantic import SemanticCache, SemanticCacheError
 
