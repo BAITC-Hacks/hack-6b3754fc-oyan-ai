@@ -55,7 +55,7 @@ def test_date_pair_change_is_explained_by_calendar():
 
 def test_new_process_repeats_saved_responses():
     run = subprocess.run([sys.executable, str(ROOT / 'run_demo.py'), '--verify'],
-                         cwd=ROOT, capture_output=True, text=True)
+                         cwd=ROOT, capture_output=True, text=True, encoding='utf-8')
     assert run.returncode == 0, run.stderr or run.stdout
     assert 'OK: 5 saved responses' in run.stdout
 
